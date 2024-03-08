@@ -1,0 +1,14 @@
+{
+  "name": "@esperanc/gestagrama",
+  "main": "09efb508ad722ae8@1159.js",
+  "version": "1159.0.0",
+  "homepage": "https://observablehq.com/@esperanc/gestagrama",
+  "author": {
+    "name": "Claudio Esperança",
+    "url": "https://observablehq.com/@esperanc"
+  },
+  "type": "module",
+  "peerDependencies": {
+    "@observablehq/runtime": "4 - 5"
+  }
+}
