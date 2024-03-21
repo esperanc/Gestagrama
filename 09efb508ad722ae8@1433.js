@@ -1,6 +1,6 @@
 import define1 from "./b5cb6febc00bdfdb@116.js";
 import define2 from "./25091beb60cd303a@78.js";
-import define3 from "./29bcfd3cb125d83f@218.js";
+import define3 from "./98d4df2f99b1a751@411.js";
 
 function _1(md){return(
 md`# Gestagrama
@@ -8,34 +8,124 @@ md`# Gestagrama
 `
 )}
 
-function _displayWindow(width,htl)
+async function* _vizWindow(htl,$0,Promises,viz,audio)
 {
-  const height = (width * 9) / 16;
-  const mainWindow = htl.html`<div>`;
-  Object.assign(mainWindow.style, {
-    position: "relative",
-    background: "lightgray",
-    width: width + "px",
-    height: height + "px",
-    margin: 0,
-    padding: 0
+  const container = htl.html`<div>`;
+  Object.assign(container.style, {
+    background: "black",
+    width: "100%",
+    aspectRatio: 16 / 9,
+    tabIndex: -1,
+    userSelect: "none"
   });
-  return mainWindow;
+  yield container;
+
+  while ($0.value.length == 0) await Promises.delay(100);
+
+  let vizWindow = null;
+  function setContainer(width, height) {
+    Object.assign(container.style, {
+      width: width + "px",
+      height: height + "px",
+      padding: 0,
+      margin: 0
+    });
+    if (vizWindow) vizWindow.remove();
+    vizWindow = viz({ width, height, nWeeks: 41 });
+    container.update = vizWindow.update;
+    container.newseries = vizWindow.newseries;
+    container.codigo = vizWindow.codigo;
+    container.series = vizWindow.series;
+    container.append(vizWindow);
+  }
+
+  function onresize() {
+    let fs =
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.mozFullscreenElement;
+    if (fs == container) {
+      setContainer(window.innerWidth, window.innerHeight, 0);
+      audio.play();
+    } else {
+      setContainer(1000, (1000 / 16) * 9);
+      audio.pause();
+    }
+  }
+  onresize();
+
+  window.addEventListener("resize", onresize, false);
+
+  function fullScreen(element) {
+    if (element.requestFullScreen) {
+      element.requestFullScreen();
+    } else if (element.webkitRequestFullScreen) {
+      element.webkitRequestFullScreen();
+    } else if (element.mozRequestFullScreen) {
+      element.mozRequestFullScreen();
+    }
+  }
+
+  container.onclick = function () {
+    fullScreen(container);
+  };
+  //return container;
 }
 
 
-async function* _viz(width,htl,makeChartDisplay,ballSimulation,babyCanvas,displayMunicipios,poluicao,d3,addDays,getOtherSeries,arcplot,codigoSelecionado,drawBaby,Promises,$0)
+function _pause(Inputs){return(
+Inputs.toggle({ label: "Pause", value: false })
+)}
+
+async function _audio(htl,FileAttachment){return(
+htl.html`<audio src=${await FileAttachment(
+  "Fetal Heartbeat-20190630_074152.ogg"
+).url()} controls play loop style="width: 100%" />`
+)}
+
+async function* _mainLoop(vizWindow,pause,Promises)
 {
+  const run = false;
+  const cycle = 15;
   const nWeeks = 41;
-  //const width = 1024;
-  const height = (width * 9) / 16;
+  const maxWeek = 328;
+  for (;;) {
+    if (!vizWindow.update || pause) {
+      await Promises.delay(1000);
+      continue;
+    }
+    const start = ~~(Math.random() * (maxWeek - nWeeks - cycle));
+    for (let wk = start; wk < start + cycle && !pause; wk++) {
+      await vizWindow.update(wk);
+      yield { wk, n: cycle - (wk - start), series: vizWindow.series };
+    }
+    if (!pause) vizWindow.newseries();
+  }
+}
+
+
+function _codigoSelecionado(){return(
+315460
+)}
+
+function _viz(htl,$0,getOtherSeries,ballSimulation,d3,babyCanvas,displayMunicipios,makeChartDisplay,addDays,arcplot,drawBaby,Promises){return(
+function viz(options = {}) {
+  const { nWeeks = 41, width = 1024, height = 800 } = options;
+
+  //
+  // Layout constants
+  //
   const topHeight = height * 0.6;
-  const munWidth = 200;
+  const munWidth = 250;
   const arcplotWidth = width * 0.6;
   const arcplotHeight = height * 0.7;
   const arcPlotY = height * 0.02;
   const arcPlotX = (width - arcplotWidth - munWidth) / 2;
   const bottomHeight = height - topHeight;
+
+  //
+  // Main window where the visualization will be put
+  //
   const mainWindow = htl.html`<div>`;
   Object.assign(mainWindow.style, {
     position: "relative",
@@ -44,15 +134,47 @@ async function* _viz(width,htl,makeChartDisplay,ballSimulation,babyCanvas,displa
     margin: 0,
     padding: 0
   });
-  yield mainWindow;
+
+  //
+  // The data series we will be using
+  //
+  let series;
+  let getSeriesData;
+  let codigo;
+  let poluicaoMap;
+  function loadNextSeries() {
+    const n = $0.value.length;
+    for (let i = n - 1; i >= 0; i--) {
+      if ($0.value[i].codigo != codigo || i == 0) {
+        [codigo, series] = [
+          $0.value[i].codigo,
+          $0.value[i].series
+        ];
+        getSeriesData = getOtherSeries(series);
+        const poluicao = series[series.length - 1]; // The last table in series
+        poluicaoMap = new Map(
+          poluicao.map(({ Semana, MediaPoluicao }) => [Semana, MediaPoluicao])
+        );
+        mainWindow.series = series;
+        mainWindow.poluicao = poluicao;
+        mainWindow.codigo = codigo;
+        return;
+      }
+    }
+    throw "No series in cache";
+  }
+  loadNextSeries();
+
+  //
+  // The main svg
+  //
   const container = htl.html`<svg width=${width} height=${height} style ="background:black;">
     <defs>
      <linearGradient id="pagegrad" gradientTransform="rotate(90)">
        <stop offset="0%" stop-color="rgba(0,0,0,0)"/>
-      <stop offset="90%" stop-color="rgba(0,0,0,0)"/>
-      <stop offset="93%" stop-color="rgba(0,0,0,0.1)"/> 
-      <stop offset="97.5%" stop-color="rgba(0,0,0,0.4)"/> 
-      <stop offset="100%" stop-color="rgba(0,0,0,0.8)"/>
+      <stop offset="80%" stop-color="rgba(0,0,0,0)"/>
+      <stop offset="88%" stop-color="rgba(0,0,0,0.3)"/>
+      <stop offset="100%" stop-color="rgba(0,0,0,1.)"/>
     </linearGradient>
     <filter id="blurFilter">
      <feGaussianBlur in="SourceGraphic" stdDeviation="2" />
@@ -64,18 +186,28 @@ async function* _viz(width,htl,makeChartDisplay,ballSimulation,babyCanvas,displa
     padding: 0
   });
 
-  const chart = makeChartDisplay({ width, height: bottomHeight, nWeeks });
-  chart.setAttribute("y", topHeight);
-
-  const maxBalls = 500;
+  //
+  // The balls pollution simulation
+  //
+  const maxBalls = 400;
   const ballDisplay = ballSimulation({
-    width,
-    height: topHeight * 1.2,
+    width: width - munWidth,
+    height: topHeight * 1.3,
     maxBalls
   });
+  const poluicaoBallScale = d3
+    .scaleLinear()
+    .domain([0, 150])
+    .range([2, maxBalls]);
 
+  //
+  // A gradient to cover the bottom of the window
+  //
   const pagegradient = htl.svg`<rect width=${width} height=${height} fill="url(#pagegrad)" />`;
 
+  //
+  // Fixed titles
+  //
   const titles = htl.svg`
     <text x=${
       (width - munWidth) / 2
@@ -84,9 +216,12 @@ async function* _viz(width,htl,makeChartDisplay,ballSimulation,babyCanvas,displa
     <text x=1em y=${topHeight + 20} font-size="13pt" fill="white" 
     >Peso médio de todos os nascidos vivos</text>
     <text x=1em y=${height - 20} font-size="13pt" fill="white" 
-    >Peso médio de nascidos de mães com 3 ou menos exames pré-natais</text>
+    >Peso médio de nascidos de mães com poucos exames pré-natais</text>
   `;
 
+  //
+  // The baby animation shown at the center of the window
+  //
   const babySize = babyCanvas.width;
   const targetSize = height * 0.4;
   const targetScale = targetSize / babySize;
@@ -98,8 +233,10 @@ async function* _viz(width,htl,makeChartDisplay,ballSimulation,babyCanvas,displa
     </foreignObject>
     </g>`;
 
+  //
+  // The municipality list display
+  //
   const munDisplay = displayMunicipios({ width: munWidth, height });
-
   Object.assign(munDisplay.style, {
     position: "absolute",
     top: 0,
@@ -107,35 +244,39 @@ async function* _viz(width,htl,makeChartDisplay,ballSimulation,babyCanvas,displa
     padding: 0,
     margin: 0
   });
-  // const munDisplaySvg = htl.svg`<g transform="translate(${
-  //   width - munWidth
-  // },0)"  >
-  // <rect x="-10" width="${munWidth}" height="${height}" fill="black"/>
-  //   <foreignObject x=0 y=0 width=${munWidth} height=${height} >
-  //   ${munDisplay}
-  //   </foreignObject>
 
-  //   </g>`;
+  //
+  // A group for the area plot at the bottom of the viz
+  //
+  const chartGroup = htl.svg`<g class=chartgroup transform=translate(0,${topHeight}) >`;
 
-  container.append(ballDisplay, chart, pagegradient, titles, baby);
+  container.append(ballDisplay, chartGroup, pagegradient, titles, baby);
   mainWindow.append(container, munDisplay);
 
-  const poluicaoMap = new Map(
-    poluicao.map(({ Semana, MediaPoluicao }) => [Semana, MediaPoluicao])
-  );
-  const poluicaoBallScale = d3
-    .scaleLinear()
-    .domain([0, 150])
-    .range([2, maxBalls]);
+  //
+  // The area plot
+  let chart;
+  function createChart() {
+    chart = makeChartDisplay({
+      series1: series[0],
+      series2: series[1],
+      width: width - munWidth,
+      height: bottomHeight,
+      nWeeks
+    });
+    const chartGroupSel = d3.select(container).select("g.chartgroup");
+    chartGroupSel.selectAll("svg").remove();
+    chartGroupSel.node().append(chart);
+  }
+  createChart();
+
+  //
+  // The text describing the current week
+  //
   const displayWeekSel = d3
     .select(container)
     .append("g")
     .attr("transform", "translate(20,20)");
-  const displayArcplotSel = d3
-    .select(container)
-    .append("g")
-    .attr("transform", `translate(${arcPlotX},${arcPlotY})`);
-
   const displayWeek = () => {
     displayWeekSel.selectAll("text").remove();
     let time = chart.highlightDay.split("/");
@@ -185,9 +326,16 @@ async function* _viz(width,htl,makeChartDisplay,ballSimulation,babyCanvas,displa
   };
   displayWeek();
 
+  //
+  // The arc plot
+  //
+  const displayArcplotSel = d3
+    .select(container)
+    .append("g")
+    .attr("transform", `translate(${arcPlotX},${arcPlotY})`);
   const displayArcplot = () => {
     displayArcplotSel.selectAll("svg").remove();
-    const data = getOtherSeries(chart.highlightWeek);
+    const data = getSeriesData(chart.highlightWeek);
     displayArcplotSel.node().append(
       arcplot(data, {
         extent: [0, 25],
@@ -201,107 +349,51 @@ async function* _viz(width,htl,makeChartDisplay,ballSimulation,babyCanvas,displa
       })
     );
   };
-  for (;;) {
-    for (let wk = 0; wk + nWeeks < 325; wk++) {
-      munDisplay.highlight(codigoSelecionado);
-      const nballs = ~~poluicaoBallScale(poluicaoMap.get(chart.highlightWeek));
-      //
-      ballDisplay.setBalls(nballs);
-      displayArcplot();
-      let highlightWeek = chart.highlightWeek;
-      for (let delta = 0; delta < 1; delta += 1 / 20) {
-        if (chart.highlightWeek != highlightWeek) {
-          const nballs = ~~poluicaoBallScale(
-            poluicaoMap.get(chart.highlightWeek)
-          );
-          ballDisplay.setBalls(nballs);
-          displayWeek();
-          displayArcplot();
-          highlightWeek = chart.highlightWeek;
-        }
-        chart.setMinTime(wk + delta);
-        drawBaby();
-        await Promises.delay(50);
+  displayArcplot();
+
+  async function update(wk) {
+    // for (;;) {
+    //   for (let wk = 0; wk + nWeeks < 325; wk++) {
+    munDisplay.highlight(codigo);
+    const nballs = ~~poluicaoBallScale(poluicaoMap.get(chart.highlightWeek));
+    //
+    ballDisplay.setBalls(nballs);
+    displayArcplot();
+    let highlightWeek = chart.highlightWeek;
+    for (let delta = 0; delta < 1; delta += 1 / 20) {
+      if (chart.highlightWeek != highlightWeek) {
+        const nballs = ~~poluicaoBallScale(
+          poluicaoMap.get(chart.highlightWeek)
+        );
+        ballDisplay.setBalls(nballs);
+        displayWeek();
+        displayArcplot();
+        highlightWeek = chart.highlightWeek;
       }
-    }
-    $0.value++;
-  }
-}
-
-
-function _loadingCounter(){return(
-0
-)}
-
-async function _waitingScreen(htl,displayWindow,$0,Promises)
-{
-  let waiting = htl.html`<div>Carregando `;
-  Object.assign(waiting.style, {
-    position: "absolute",
-    width: "150px",
-    top: "50%",
-    left: "50%",
-    transform: "translate(-50%, -50%)",
-    padding: "10px"
-  });
-  displayWindow.append(waiting);
-  let counter = 0;
-  while ($0.value < 6) {
-    counter = (counter + 1) % 4;
-    const howmany = htl.html`<span>${"....".slice(0, counter + 1)}`;
-    waiting.append(howmany);
-    await Promises.delay(500);
-    howmany.remove();
-  }
-}
-
-
-function _mapVizToDisplay(waitingScreen,viz,displayWindow,invalidation)
-{
-  waitingScreen;
-  const vizWindow = viz;
-  displayWindow.append(vizWindow);
-  invalidation.then(() => vizWindow.remove());
-}
-
-
-function _runs(){return(
-0
-)}
-
-async function* _changeMunicipio(CodigosValidos,$0,$1,Promises)
-{
-  function pickMunicipio() {
-    let n = ~~(CodigosValidos.length * Math.random());
-    let codigo = +CodigosValidos[n].CodMunicipio;
-    return codigo;
-  }
-  for (;;) {
-    let k = $0.value;
-    let codigo = pickMunicipio();
-    $1.value = codigo;
-    while ($0.value == k) {
-      yield codigo;
-      await Promises.delay(200);
+      chart.setMinTime(wk + delta);
+      drawBaby();
+      await Promises.delay(50);
     }
   }
+  mainWindow.newseries = () => {
+    loadNextSeries();
+    createChart();
+  };
+  mainWindow.update = update;
+  return mainWindow;
 }
-
-
-function _codigoSelecionado(){return(
-431720
 )}
 
 function _currentSeries(){return(
 0
 )}
 
-function _getSeries(pesoMedioTotal,pesoMedioPoucasConsultas){return(
-function getSeries(startWeek, nWeeks = 41) {
+function _getSeries(){return(
+function getSeries(s1, s2, startWeek, nWeeks = 41) {
   const endWeek = startWeek + nWeeks;
   const weekInRange = (obj) => obj.Semana >= startWeek && obj.Semana < endWeek;
-  const series1 = pesoMedioTotal.filter(weekInRange);
-  const series2 = pesoMedioPoucasConsultas.filter(weekInRange);
+  const series1 = s1.filter(weekInRange);
+  const series2 = s2.filter(weekInRange);
   return { series1, series2 };
 }
 )}
@@ -314,14 +406,43 @@ function addDays(yy, mm, dd, days) {
 }
 )}
 
-function _series(pesoMedioTotal,pesoMedioPoucasConsultas,pesoMedioIdadeNaoIdeal,pesoMedioEscolaridadeBaixa,pesoMedioPretas,pesoMedioNaoCasadas){return(
+function _seriesCache(){return(
+[]
+)}
+
+function _weirdCodes(){return(
+[]
+)}
+
+async function _fillCache($0,$1,currentSeriesSet,$2,Promises,CodigosValidos)
+{
+  $0.value.push({
+    codigo: $1.value,
+    series: currentSeriesSet
+  });
+  if (currentSeriesSet[0].length < 200 || currentSeriesSet[0][0].Semana != 0) {
+    $2.value.push($1.value);
+  }
+  if ($0.value.length > 10) {
+    $0.value.shift();
+  }
+
+  await Promises.delay(50000); // Await 5 seconds for the next fetch
+  const cod = CodigosValidos.pop();
+  CodigosValidos.unshift(cod);
+  $1.value = +cod.CodMunicipio;
+}
+
+
+function _currentSeriesSet(pesoMedioTotal,pesoMedioPoucasConsultas,pesoMedioIdadeNaoIdeal,pesoMedioEscolaridadeBaixa,pesoMedioPretas,pesoMedioNaoCasadas,poluicao){return(
 [
   pesoMedioTotal,
   pesoMedioPoucasConsultas,
   pesoMedioIdadeNaoIdeal,
   pesoMedioEscolaridadeBaixa,
   pesoMedioPretas,
-  pesoMedioNaoCasadas
+  pesoMedioNaoCasadas,
+  poluicao
 ]
 )}
 
@@ -336,7 +457,7 @@ function _seriesTitles(){return(
 ]
 )}
 
-function _makeChartDisplay(htl,getSeries,Plot){return(
+function _makeChartDisplay(htl,Plot){return(
 function makeChartDisplay(options = {}) {
   const {
     width = 1000,
@@ -345,7 +466,10 @@ function makeChartDisplay(options = {}) {
     nWeeks = 41,
     firstWeek = 0,
     strokeColor = "black",
-    fillColor = "white"
+    fillColor = "white",
+    domain = [2500, 3600],
+    series1 = [],
+    series2 = []
   } = options;
   const div = htl.html`<svg width = ${width} height=${height} >`;
   // div.style.background =
@@ -381,7 +505,13 @@ function makeChartDisplay(options = {}) {
   div.highlightWeek = 0;
   div.highlightDay = "";
   const makeMainChart = (startWeek, weeks) => {
-    const { series1, series2 } = getSeries(startWeek, weeks);
+    const endWeek = startWeek + weeks;
+    const weekInRange = (obj) =>
+      obj.Semana >= startWeek && obj.Semana < endWeek;
+    const s1 = series1.filter(weekInRange);
+    const s2 = series2.filter(weekInRange);
+
+    //const { series1, series2 } = getSeries(startWeek, weeks);
 
     const spec = {
       width: width + dwidth,
@@ -390,15 +520,15 @@ function makeChartDisplay(options = {}) {
       marginRight: 0,
       marginBottom: 0,
       marginLeft: 0,
-      y: { domain: [2500, 3600], clamp: true, label: null },
+      y: { domain, clamp: true, label: null },
       marks: [
-        Plot.areaY(series1, {
+        Plot.areaY(s1, {
           x: "Semana",
           y: "MediaPeso",
           curve: "catmull-rom",
           fill: "black"
         }),
-        Plot.areaY(series2, {
+        Plot.areaY(s2, {
           x: "Semana",
           y: "MediaPeso",
           curve: "catmull-rom",
@@ -408,8 +538,8 @@ function makeChartDisplay(options = {}) {
     };
 
     const { week, s1Peso, s2Peso, day } = maxVariation(
-      series1,
-      series2,
+      s1,
+      s2,
       startWeek + weeks * 0.45,
       startWeek + weeks * 0.55
     );
@@ -443,14 +573,6 @@ function makeChartDisplay(options = {}) {
           stroke: strokeColor,
           fontSize: 15
         }),
-        // Plot.text([[week, 2900]], {
-        //   text: () => day,
-        //   lineAnchor: "bottom",
-        //   dy: -5,
-        //   fill: "black",
-        //   stroke: "white",
-        //   fontSize: 20
-        // }),
         Plot.line(
           [
             [week, s1Peso],
@@ -488,15 +610,16 @@ function makeChartDisplay(options = {}) {
 }
 )}
 
-function _getOtherSeries(series,seriesTitles)
-{
+function _getOtherSeries(seriesTitles){return(
+function (series) {
   const maps = [];
   const palette = [
-    "rgba(32,166,61, 0.8)",
-    "rgba(42,119,98, 0.8)",
-    "rgba(48,79,133, 0.8)",
-    "rgba(54,48,161, 0.8)",
-    "rgba(59,26,182, 0.8)"
+    "rgba(255,255,255, 0.6)",
+    "rgba(255,255,255, 0.6)", // 1
+    "rgba(147,255,255, 0.5)", // 2
+    "rgba(106,255,115, 0.5)", // 3
+    "rgba(0,165,240, 0.5)",
+    "rgba(37,69,208, 0.4)"
   ];
   for (let s of series) {
     maps.push(new Map(s.map((obj) => [obj.Semana, obj.MediaPeso])));
@@ -504,7 +627,7 @@ function _getOtherSeries(series,seriesTitles)
   return function (semana) {
     const data = [];
     const total = maps[0].get(semana);
-    for (let i = 1; i < maps.length; i++) {
+    for (let i = 1; i < 6; i++) {
       let obj = {
         name: seriesTitles[i],
         value: ((total - maps[i].get(semana)) / total) * 100 || 0,
@@ -515,7 +638,7 @@ function _getOtherSeries(series,seriesTitles)
     return data;
   };
 }
-
+)}
 
 function _ballSimulation(d3,htl,forceBoundary,createSimplexNoise){return(
 function (options = {}) {
@@ -538,12 +661,13 @@ function (options = {}) {
 
   const nodes = points.map(([x, y]) => ({ x, y }));
   const r = avgDist / 2;
+  const rdisplay = r / 2;
   const svg = d3.select(display);
   let balls = svg
     .selectAll("circle")
     .data(nodes)
     .join("circle")
-    .attr("r", r)
+    .attr("r", rdisplay)
     .attr("fill", "url(#grad)");
   const update = () => balls.attr("cx", (d) => d.x).attr("cy", (d) => d.y);
   update();
@@ -553,10 +677,10 @@ function (options = {}) {
   function setBalls(nballs) {
     const nodesSubset = nodes.slice(0, nballs);
     const fb = forceBoundary(
-        -width * 0.2,
-        -height * 0.2,
-        width * 1.2,
-        height * 1.2
+        -width * 0.1,
+        -height * 0.1,
+        width * 1.1,
+        height * 1.1
       ).strength(0.005),
       fmb = d3.forceManyBody().strength(-10),
       fcol = d3.forceCollide(r * 1.5).iterations(1),
@@ -591,6 +715,7 @@ function (options = {}) {
           node.x += dx;
           node.y += dy;
         }
+        makeNoise();
         update();
       }, 50);
     };
@@ -633,7 +758,15 @@ function (options = {}) {
 }
 )}
 
-function _displayMunicipios(htl,MunicipiosPorPoluicao,codigoSelecionado){return(
+async function _UF(FileAttachment)
+{
+  const cod_uf = await FileAttachment("uf.csv").csv();
+  let cod_to_uf = new Map(cod_uf.map(({ Codigo, UF }) => [+Codigo, UF]));
+  return (cod) => cod_to_uf.get(~~(+cod / 10000));
+}
+
+
+function _displayMunicipios(htl,MunicipiosPorPoluicao,UF){return(
 function displayMunicipios(options = {}) {
   let { width = 200, height = 600, municipio = 353440 } = options;
   const container = htl.html`<div>`;
@@ -672,9 +805,11 @@ function displayMunicipios(options = {}) {
     fontSize: "9pt"
   });
   let i = 0;
-  for (let { NomeMunicipio } of MunicipiosPorPoluicao) {
+  for (let { CodMunicipio, NomeMunicipio } of MunicipiosPorPoluicao) {
     contents.append(
-      htl.html`<tr><td>${++i}</td><td>${NomeMunicipio}</td></tr>`
+      htl.html`<tr><td>${++i}</td><td>${NomeMunicipio} (${UF(
+        CodMunicipio
+      )})</td></tr>`
     );
   }
 
@@ -693,7 +828,6 @@ function displayMunicipios(options = {}) {
     municipio = cod;
   };
   container.highlight = highlight;
-  setTimeout(() => highlight(codigoSelecionado), 10);
   return container;
 }
 )}
@@ -724,7 +858,7 @@ table.municipios tr.highlight {
 `
 )}
 
-function _21(md){return(
+function _22(md){return(
 md`## Data`
 )}
 
@@ -765,55 +899,27 @@ DuckDBClient.of({
 })
 )}
 
-function _30(pesoMedioPretas,$0)
-{
-  pesoMedioPretas;
-  $0.value++;
-}
-
-
-function _31(db,$0)
-{
-  db;
-  $0.value++;
-}
-
-
-function _32(pesoMedioEscolaridadeBaixa,$0)
-{
-  pesoMedioEscolaridadeBaixa;
-  $0.value++;
-}
-
-
-function _33(pesoMedioIdadeNaoIdeal,$0)
-{
-  pesoMedioIdadeNaoIdeal;
-  $0.value++;
-}
-
-
-function _34(pesoMedioNaoCasadas,$0)
-{
-  pesoMedioNaoCasadas;
-  $0.value++;
-}
-
-
-function _35(pesoMedioPoucasConsultas,$0)
-{
-  pesoMedioPoucasConsultas;
-  $0.value++;
-}
-
-
-function _36(md){return(
+function _31(md){return(
 md`### These queries were saved as csv attachments`
 )}
 
-function _CodigosValidos(__query,FileAttachment,invalidation){return(
-__query(FileAttachment("CodigosValidos.csv"),{from:{table:"CodigosValidos"},sort:[],slice:{to:null,from:null},filter:[],select:{columns:null}},invalidation)
-)}
+async function _CodigosValidos(FileAttachment,d3)
+{
+  let cv = await FileAttachment("CodigosValidos@1.csv").csv();
+  let codigos = [];
+  const weird = new Set([150020, 211280, 310160, 352930, 150020]);
+  let n = 100;
+  for (let { CodMunicipio } of cv) {
+    if (!weird.has(CodMunicipio)) {
+      codigos.push({ CodMunicipio });
+      n--;
+      if (n == 0) break;
+    }
+  }
+  d3.shuffle(codigos);
+  return codigos;
+}
+
 
 function _MunicipiosPorPoluicao(__query,FileAttachment,invalidation){return(
 __query(FileAttachment("MunicipiosPorPoluicao.csv"),{from:{table:"MunicipiosPorPoluicao"},sort:[],slice:{to:null,from:null},filter:[],select:{columns:null}},invalidation)
@@ -829,7 +935,7 @@ function _debug(){return(
 0
 )}
 
-function _43(md){return(
+function _39(md){return(
 md`## Imports`
 )}
 
@@ -846,35 +952,40 @@ export default function define(runtime, observer) {
     ["Andale Mono.ttf", {url: new URL("./files/dff5fea983d57ae0258c3e79d7f5a7760b09b7024182c09ff101da032db73723c67c73727e88882550daea1c9dd11fc513c65a688d967da9c35d96818e86de79.ttf", import.meta.url), mimeType: "font/ttf", toString}],
     ["sinasc-20240303.parquet", {url: new URL("./files/aa004875534401996879a853a57b7d041a9f8d0e197df8e2b77fe1cc6ed604a568fde83a83e2fd89353b17769b51d9b8b30855e1d7a87d51f435fe5c88f03800.bin", import.meta.url), mimeType: "application/octet-stream", toString}],
     ["MunicipiosPorPoluicao.csv", {url: new URL("./files/032523d52059d6e646392bf084b99b385ee06ba3ebe49db6b3d743090745799aefb6b07400c1e7526e2666c469e2856d7a01b3210075e1af1c3981b4bc289419.csv", import.meta.url), mimeType: "text/csv", toString}],
-    ["CodigosValidos.csv", {url: new URL("./files/0d8cef7cef2f8492fb63218b4a40bf1e8a13678df717a55b382af420cd92346b6410a09c2b61577c755ccb0984a2ed7304356859faab4d4336654b1d25d86ccb.csv", import.meta.url), mimeType: "text/csv", toString}]
+    ["CodigosValidos@1.csv", {url: new URL("./files/790908123c6f42f4e579da83c232805737dc0fb251a16edda0a7f565660b790c74b9498a91d8b6abf4e33b541a3d6e8dc5b07a7122a30da97c09b35fc99a1c76.csv", import.meta.url), mimeType: "text/csv", toString}],
+    ["uf.csv", {url: new URL("./files/cfaada522ed65c8760177304b7fdcb95a622acc2b973ae1a124a2d7fc4a41004ce9d9aadb05839e020517f4032b965ed62e2fb962a0ed0f0a5896f77528d8211.csv", import.meta.url), mimeType: "text/csv", toString}],
+    ["Fetal Heartbeat-20190630_074152.ogg", {url: new URL("./files/fdd306f4acd0ed7d0e2b8672259a610c5f957b55dfae6e3169534dedc56d7cc98b73cd6673578055809d9dd010c591b920854174ce24a05b4fa7a9cfaf3e52fa.oga", import.meta.url), mimeType: "audio/ogg", toString}]
   ]);
   main.builtin("FileAttachment", runtime.fileAttachments(name => fileAttachments.get(name)));
   main.variable(observer()).define(["md"], _1);
-  main.variable(observer("displayWindow")).define("displayWindow", ["width","htl"], _displayWindow);
-  main.variable(observer("viz")).define("viz", ["width","htl","makeChartDisplay","ballSimulation","babyCanvas","displayMunicipios","poluicao","d3","addDays","getOtherSeries","arcplot","codigoSelecionado","drawBaby","Promises","mutable runs"], _viz);
-  main.define("initial loadingCounter", _loadingCounter);
-  main.variable(observer("mutable loadingCounter")).define("mutable loadingCounter", ["Mutable", "initial loadingCounter"], (M, _) => new M(_));
-  main.variable(observer("loadingCounter")).define("loadingCounter", ["mutable loadingCounter"], _ => _.generator);
-  main.variable(observer("waitingScreen")).define("waitingScreen", ["htl","displayWindow","mutable loadingCounter","Promises"], _waitingScreen);
-  main.variable(observer("mapVizToDisplay")).define("mapVizToDisplay", ["waitingScreen","viz","displayWindow","invalidation"], _mapVizToDisplay);
-  main.define("initial runs", _runs);
-  main.variable(observer("mutable runs")).define("mutable runs", ["Mutable", "initial runs"], (M, _) => new M(_));
-  main.variable(observer("runs")).define("runs", ["mutable runs"], _ => _.generator);
-  main.variable(observer("changeMunicipio")).define("changeMunicipio", ["CodigosValidos","mutable runs","mutable codigoSelecionado","Promises"], _changeMunicipio);
+  main.variable(observer("vizWindow")).define("vizWindow", ["htl","mutable seriesCache","Promises","viz","audio"], _vizWindow);
+  main.variable(observer("viewof pause")).define("viewof pause", ["Inputs"], _pause);
+  main.variable(observer("pause")).define("pause", ["Generators", "viewof pause"], (G, _) => G.input(_));
+  main.variable(observer("audio")).define("audio", ["htl","FileAttachment"], _audio);
+  main.variable(observer("mainLoop")).define("mainLoop", ["vizWindow","pause","Promises"], _mainLoop);
   main.define("initial codigoSelecionado", _codigoSelecionado);
   main.variable(observer("mutable codigoSelecionado")).define("mutable codigoSelecionado", ["Mutable", "initial codigoSelecionado"], (M, _) => new M(_));
   main.variable(observer("codigoSelecionado")).define("codigoSelecionado", ["mutable codigoSelecionado"], _ => _.generator);
+  main.variable(observer("viz")).define("viz", ["htl","mutable seriesCache","getOtherSeries","ballSimulation","d3","babyCanvas","displayMunicipios","makeChartDisplay","addDays","arcplot","drawBaby","Promises"], _viz);
   main.variable(observer("currentSeries")).define("currentSeries", _currentSeries);
-  main.variable(observer("getSeries")).define("getSeries", ["pesoMedioTotal","pesoMedioPoucasConsultas"], _getSeries);
+  main.variable(observer("getSeries")).define("getSeries", _getSeries);
   main.variable(observer("addDays")).define("addDays", _addDays);
-  main.variable(observer("series")).define("series", ["pesoMedioTotal","pesoMedioPoucasConsultas","pesoMedioIdadeNaoIdeal","pesoMedioEscolaridadeBaixa","pesoMedioPretas","pesoMedioNaoCasadas"], _series);
+  main.define("initial seriesCache", _seriesCache);
+  main.variable(observer("mutable seriesCache")).define("mutable seriesCache", ["Mutable", "initial seriesCache"], (M, _) => new M(_));
+  main.variable(observer("seriesCache")).define("seriesCache", ["mutable seriesCache"], _ => _.generator);
+  main.define("initial weirdCodes", _weirdCodes);
+  main.variable(observer("mutable weirdCodes")).define("mutable weirdCodes", ["Mutable", "initial weirdCodes"], (M, _) => new M(_));
+  main.variable(observer("weirdCodes")).define("weirdCodes", ["mutable weirdCodes"], _ => _.generator);
+  main.variable(observer("fillCache")).define("fillCache", ["mutable seriesCache","mutable codigoSelecionado","currentSeriesSet","mutable weirdCodes","Promises","CodigosValidos"], _fillCache);
+  main.variable(observer("currentSeriesSet")).define("currentSeriesSet", ["pesoMedioTotal","pesoMedioPoucasConsultas","pesoMedioIdadeNaoIdeal","pesoMedioEscolaridadeBaixa","pesoMedioPretas","pesoMedioNaoCasadas","poluicao"], _currentSeriesSet);
   main.variable(observer("seriesTitles")).define("seriesTitles", _seriesTitles);
-  main.variable(observer("makeChartDisplay")).define("makeChartDisplay", ["htl","getSeries","Plot"], _makeChartDisplay);
-  main.variable(observer("getOtherSeries")).define("getOtherSeries", ["series","seriesTitles"], _getOtherSeries);
+  main.variable(observer("makeChartDisplay")).define("makeChartDisplay", ["htl","Plot"], _makeChartDisplay);
+  main.variable(observer("getOtherSeries")).define("getOtherSeries", ["seriesTitles"], _getOtherSeries);
   main.variable(observer("ballSimulation")).define("ballSimulation", ["d3","htl","forceBoundary","createSimplexNoise"], _ballSimulation);
-  main.variable(observer("displayMunicipios")).define("displayMunicipios", ["htl","MunicipiosPorPoluicao","codigoSelecionado"], _displayMunicipios);
+  main.variable(observer("UF")).define("UF", ["FileAttachment"], _UF);
+  main.variable(observer("displayMunicipios")).define("displayMunicipios", ["htl","MunicipiosPorPoluicao","UF"], _displayMunicipios);
   main.variable(observer("styles")).define("styles", ["htl","FileAttachment"], _styles);
-  main.variable(observer()).define(["md"], _21);
+  main.variable(observer()).define(["md"], _22);
   main.variable(observer("pesoMedioTotal")).define("pesoMedioTotal", ["codigoSelecionado","__query","db","invalidation"], _pesoMedioTotal);
   main.variable(observer("pesoMedioPoucasConsultas")).define("pesoMedioPoucasConsultas", ["codigoSelecionado","__query","db","invalidation"], _pesoMedioPoucasConsultas);
   main.variable(observer("pesoMedioPretas")).define("pesoMedioPretas", ["codigoSelecionado","__query","db","invalidation"], _pesoMedioPretas);
@@ -883,20 +994,14 @@ export default function define(runtime, observer) {
   main.variable(observer("pesoMedioNaoCasadas")).define("pesoMedioNaoCasadas", ["codigoSelecionado","__query","db","invalidation"], _pesoMedioNaoCasadas);
   main.variable(observer("poluicao")).define("poluicao", ["codigoSelecionado","__query","db","invalidation"], _poluicao);
   main.variable(observer("db")).define("db", ["DuckDBClient","FileAttachment"], _db);
-  main.variable(observer()).define(["pesoMedioPretas","mutable loadingCounter"], _30);
-  main.variable(observer()).define(["db","mutable loadingCounter"], _31);
-  main.variable(observer()).define(["pesoMedioEscolaridadeBaixa","mutable loadingCounter"], _32);
-  main.variable(observer()).define(["pesoMedioIdadeNaoIdeal","mutable loadingCounter"], _33);
-  main.variable(observer()).define(["pesoMedioNaoCasadas","mutable loadingCounter"], _34);
-  main.variable(observer()).define(["pesoMedioPoucasConsultas","mutable loadingCounter"], _35);
-  main.variable(observer()).define(["md"], _36);
-  main.variable(observer("CodigosValidos")).define("CodigosValidos", ["__query","FileAttachment","invalidation"], _CodigosValidos);
+  main.variable(observer()).define(["md"], _31);
+  main.variable(observer("CodigosValidos")).define("CodigosValidos", ["FileAttachment","d3"], _CodigosValidos);
   main.variable(observer("MunicipiosPorPoluicao")).define("MunicipiosPorPoluicao", ["__query","FileAttachment","invalidation"], _MunicipiosPorPoluicao);
   main.variable(observer("queryToArray")).define("queryToArray", _queryToArray);
   main.define("initial debug", _debug);
   main.variable(observer("mutable debug")).define("mutable debug", ["Mutable", "initial debug"], (M, _) => new M(_));
   main.variable(observer("debug")).define("debug", ["mutable debug"], _ => _.generator);
-  main.variable(observer()).define(["md"], _43);
+  main.variable(observer()).define(["md"], _39);
   const child1 = runtime.module(define1);
   main.import("createSimplexNoise", child1);
   main.variable(observer("forceBoundary")).define("forceBoundary", ["require"], _forceBoundary);
